@@ -1,0 +1,4 @@
+data/
+MNIST/
+wandb/
+lightning_logs/
