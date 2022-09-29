@@ -95,4 +95,12 @@ class ViT(pl.LightningModule):
         out = self.forward(x)
         out = out.view(out.size(0), -1)
         loss = F.cross_entropy(out, y)
+        _, predicted = out.max(1)
+        correct = predicted.eq(y).sum().item()
         self.log('val_loss', loss)
+        return correct, out.size(0)
+    
+    def validation_epoch_end(self, validation_step_outputs):
+        corrects = (list(zip(*validation_step_outputs))[0])
+        total = (list(zip(*validation_step_outputs))[1])
+        self.log('val_acc', sum(corrects)/sum(total)*100)
