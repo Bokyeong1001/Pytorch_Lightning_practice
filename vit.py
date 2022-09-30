@@ -3,6 +3,7 @@ import pytorch_lightning as pl
 from torch import nn
 from torch.nn import functional as F
 from einops import rearrange
+from torchmetrics.functional import accuracy
 
 class PreNorm(pl.LightningModule):
     def __init__(self, dim, fn):
@@ -89,18 +90,21 @@ class ViT(pl.LightningModule):
         loss = F.cross_entropy(out, y)
         self.log('train_loss', loss)
         return loss
-
-    def validation_step(self, val_batch, batch_idx):
-        x, y = val_batch
-        out = self.forward(x)
+    
+    def evaluate(self, batch, stage=None):
+        x, y = batch
+        out = self.forward(x)    
         out = out.view(out.size(0), -1)
         loss = F.cross_entropy(out, y)
-        _, predicted = out.max(1)
-        correct = predicted.eq(y).sum().item()
-        self.log('val_loss', loss)
-        return correct, out.size(0)
-    
-    def validation_epoch_end(self, validation_step_outputs):
-        corrects = (list(zip(*validation_step_outputs))[0])
-        total = (list(zip(*validation_step_outputs))[1])
-        self.log('val_acc', sum(corrects)/sum(total)*100)
+        preds = torch.argmax(out, dim=1)
+        acc = accuracy(preds, y)
+
+        if stage:
+            self.log(f"{stage}_loss", loss, prog_bar=True)
+            self.log(f"{stage}_acc", acc, prog_bar=True)
+
+    def validation_step(self, batch, batch_idx):
+        self.evaluate(batch, "val")
+
+    def test_step(self, batch, batch_idx):
+        self.evaluate(batch, "test")

@@ -1,38 +1,61 @@
+import os
 
 import torch
-from torch.utils.data import DataLoader
-from torchvision.datasets import CIFAR10
-from torchvision import transforms
-from pytorch_lightning.loggers import WandbLogger
-import pytorch_lightning as pl
+import torchvision
+from pl_bolts.datamodules import CIFAR10DataModule
+from pl_bolts.transforms.dataset_normalizations import cifar10_normalization
+from pytorch_lightning import Trainer, seed_everything
+from pytorch_lightning.callbacks import LearningRateMonitor
+from pytorch_lightning.callbacks.progress import TQDMProgressBar
+from resnet18 import Resnet18
 from vit import ViT
-from resnet50 import Resnet18
+from pytorch_lightning.loggers import WandbLogger
 
-# data
-transform_train = transforms.Compose([
-        transforms.RandomResizedCrop((128, 128), scale=(0.05, 1.0)),
-        transforms.ToTensor(),
-        transforms.Normalize(mean=[0.5, 0.5, 0.5], std=[0.5, 0.5, 0.5]),
-    ])
-transform_test = transforms.Compose([
-        transforms.Resize((128, 128)),
-        transforms.ToTensor(),
-        transforms.Normalize(mean=[0.5, 0.5, 0.5], std=[0.5, 0.5, 0.5]),
-    ])
+seed_everything(1234)
 
-trainset = CIFAR10(root="./data", train=True, download=True, transform=transform_train)
-testset = CIFAR10(root="./data", train=False, download=True, transform=transform_test)
+PATH_DATASETS = os.environ.get("PATH_DATASETS", "./data")
+BATCH_SIZE = 256 if torch.cuda.is_available() else 64
+NUM_WORKERS = int(os.cpu_count() / 2)
 
-train_loader = DataLoader(trainset, batch_size=512)
-val_loader = DataLoader(testset, batch_size=512)
+train_transforms = torchvision.transforms.Compose(
+    [
+        torchvision.transforms.RandomCrop(32, padding=4),
+        torchvision.transforms.RandomHorizontalFlip(),
+        torchvision.transforms.ToTensor(),
+        cifar10_normalization(),
+    ]
+)
+
+test_transforms = torchvision.transforms.Compose(
+    [
+        torchvision.transforms.ToTensor(),
+        cifar10_normalization(),
+    ]
+)
+
+cifar10_dm = CIFAR10DataModule(
+    data_dir=PATH_DATASETS,
+    batch_size=BATCH_SIZE,
+    num_workers=NUM_WORKERS,
+)
+
+cifar10_dm.train_transforms = train_transforms
+cifar10_dm.test_transforms = test_transforms
+cifar10_dm.val_transforms  = test_transforms
 
 # model
-#model = ViT(dim=384, patch_size=16, seq_len=64, depth=6, heads=6, dropout=0.1)
-model = Resnet18()
+model = ViT(dim=192, patch_size=4, seq_len=64, depth=12, heads=3, dropout=0.1)
+#model = Resnet18()
 
-# training
-wandb_logger = WandbLogger()
-trainer = pl.Trainer(gpus=1,logger=wandb_logger)
-trainer.fit(model, train_loader, val_loader)
-    
-#trainer.validate(dataloaders=val_loader)
+wandb_logger = WandbLogger(project='2022320002_bokyeong_pl_cifar10', name='ViT-Tiny/4')
+
+trainer = Trainer(
+    max_epochs=200,
+    accelerator="auto",
+    logger=wandb_logger,
+    devices=1 if torch.cuda.is_available() else None,  # limiting got iPython runs
+    callbacks=[LearningRateMonitor(logging_interval="step"), TQDMProgressBar(refresh_rate=10)],
+)
+
+trainer.fit(model, cifar10_dm)
+trainer.test(model, datamodule=cifar10_dm)

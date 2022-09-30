@@ -2,3 +2,4 @@ data/
 MNIST/
 wandb/
 lightning_logs/
+2022320002_bokyeong_pl_cifar10/
